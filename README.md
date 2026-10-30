@@ -19,6 +19,8 @@ haldab kahte kliendiserverit:
 | Lab 2 | `playbooks/apache2_samm1.yml` | samm 1: ainult veebiserveri paigaldamine |
 | Lab 2 | `playbooks/apache2.yml` | Apache2 / httpd, userdir moodul ja kasutaja `user` koduleht `http://server/~user/` |
 | Lab 2 | `playbooks/index.yml` | iseseisev ülesanne: igale serverile unikaalne avaleht (hostinimi ja IP) |
+| Lab 3 | `playbooks/php.yml` | PHP 8 (Debianis libapache2-mod-php, CentOS-is php-fpm), iseseisev ülesanne 1: `phpinfo.php` / `info.php` |
+| Lab 3 | `playbooks/uninst_php.yml` | iseseisev ülesanne 2: PHP pakettide eemaldamine |
 | Lab 4 | `playbooks/mysql-server.yml` | MySQL ametlik APT hoidla ja MySQL 8.4 server (CentOS-is pakett mysql8.4-server) |
 | Lab 4 | `playbooks/mysql-user.yml` | iseseisev ülesanne: root kasutaja parool ja `/root/.my.cnf` |
 

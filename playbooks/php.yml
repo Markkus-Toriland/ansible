@@ -1,0 +1,72 @@
+---
+# Lab 3: veebiserveri laiendamine PHP toega
+# Autor: Markkus Toriland
+#
+# Kontroll:   ansible-playbook --check /root/playbooks/php.yml
+# Käivitus:   ansible-playbook /root/playbooks/php.yml
+#
+# Juhendis on php7.0, aga Debian 13 ja CentOS Stream 10 hoidlates on PHP 8.
+# Nagu juhend soovitab, paigaldame lihtsalt paketi "php" (state=latest annab
+# viimase versiooni). Iseseisev ülesanne 1: phpinfo leht /var/www/html/ alla.
+
+- hosts: webservers
+  vars:
+    veebiteenus: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+
+  tasks:
+    # 1. PHP koos Apache mooduli ja MySQL toega (Debian, moodul apt)
+    - name: installeerime php
+      apt:
+        name: php
+        update_cache: yes
+        state: latest
+      when: ansible_os_family == "Debian"
+
+    - name: installeerime libapache2-mod-php
+      apt:
+        name: libapache2-mod-php
+        state: latest
+      when: ansible_os_family == "Debian"
+
+    - name: installeerime php-mysql
+      apt:
+        name: php-mysql
+        state: latest
+      when: ansible_os_family == "Debian"
+
+    # CentOS-is töötab PHP httpd-ga php-fpm teenuse kaudu (moodul dnf)
+    - name: installeerime php, php-fpm ja php-mysqlnd (CentOS)
+      dnf:
+        name:
+          - php
+          - php-fpm
+          - php-mysqlnd
+        state: latest
+      when: ansible_os_family == "RedHat"
+
+    - name: php-fpm teenus käima (CentOS)
+      service:
+        name: php-fpm
+        state: started
+        enabled: yes
+      ignore_errors: "{{ ansible_check_mode }}"   # --check ajal teenust veel ei ole
+      when: ansible_os_family == "RedHat"
+
+    # 2. Iseseisev ülesanne 1: PHP testleht (juhendis nimed phpinfo.php ja info.php)
+    - name: Loome PHP info lehe /var/www/html/ kataloogi
+      copy:
+        dest: "/var/www/html/{{ item }}"
+        mode: "0644"
+        content: |
+          <?php
+          phpinfo();
+          ?>
+      loop:
+        - phpinfo.php
+        - info.php
+
+    # 3. Veebiserver taaskäivitub, et PHP moodul laaditaks
+    - name: Alglaadimine Apache2
+      service:
+        name: "{{ veebiteenus }}"
+        state: restarted

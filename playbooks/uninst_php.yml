@@ -1,0 +1,53 @@
+---
+# Lab 3 iseseisev ülesanne 2: PHP eemaldamine kliendiserveritest
+# Autor: Markkus Toriland
+#
+# Juhendi käsud vale PHP versiooni käsitsi eemaldamiseks (Debian):
+#   apt-get purge php7.*
+#   apt-get purge php7.X-common
+#   apt remove php7.X*
+# See playbook teeb sama automaatselt ja leiab ise, millised PHP paketid on paigaldatud.
+#
+# Kontroll:   ansible-playbook --check /root/playbooks/uninst_php.yml
+# Käivitus:   ansible-playbook /root/playbooks/uninst_php.yml
+# Tagasi:     ansible-playbook /root/playbooks/php.yml
+
+- hosts: webservers
+  vars:
+    veebiteenus: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+
+  tasks:
+    # 1. Leiame Debianis kõik paigaldatud PHP paketid (php*, libapache2-mod-php*)
+    - name: Leiame paigaldatud PHP paketid (Debian)
+      shell: dpkg-query -W -f='${Package} ${Status}\n' 'php*' 'libapache2-mod-php*' 2>/dev/null | awk '/ installed$/ {print $1}'
+      register: php_paketid
+      changed_when: false
+      check_mode: no                    # ainult loeb, võib ka --check ajal käivitada
+      when: ansible_os_family == "Debian"
+
+    - name: Näitame leitud pakette
+      debug:
+        msg: "{{ php_paketid.stdout_lines }}"
+      when: ansible_os_family == "Debian"
+
+    # 2. Eemaldame need paketid koos seadistusfailidega (sama mis apt-get purge)
+    - name: Eemaldame PHP paketid (Debian, apt purge)
+      apt:
+        name: "{{ php_paketid.stdout_lines }}"
+        state: absent
+        purge: yes
+        autoremove: yes
+      when: ansible_os_family == "Debian" and php_paketid.stdout_lines | length > 0
+
+    - name: Eemaldame PHP paketid (CentOS, dnf remove)
+      dnf:
+        name: "php*"
+        state: absent
+        autoremove: yes
+      when: ansible_os_family == "RedHat"
+
+    # 3. Veebiserver taaskäivitatakse ilma PHP-ta
+    - name: Alglaadimine Apache2
+      service:
+        name: "{{ veebiteenus }}"
+        state: restarted
