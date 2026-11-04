@@ -1,5 +1,5 @@
 [webservers]
-klient1 ansible_host=192.168.37.152 ansible_user=root
+klient1 ansible_host=192.168.40.68 ansible_user=root
 klient2 ansible_host=192.168.33.151 ansible_user=root
 
 [webservers:vars]

@@ -1,0 +1,152 @@
+---
+# Lab 5: WordPressi paigaldamine ja seadistamine Ansible playbookiga
+# Autor: Markkus Toriland
+#
+# Kontroll:   ansible-playbook --check /root/playbooks/wordpress.yml
+# Käivitus:   ansible-playbook /root/playbooks/wordpress.yml
+#
+# Eeldused: Lab 2 (veebiserver), Lab 3 (PHP) ja Lab 4 (MySQL + root parool
+# failis /root/.my.cnf, mille abil Ansible MySQL-i sisse logib).
+# Parool (juhendi järgi qwerty) küsitakse käivitamisel, et see poleks GitHubis.
+# Sama parool läheb andmebaasi kasutajale wpuser ja WordPressi kasutajale admin.
+
+- name: WordPress_Andmebaasi seadistamine
+  hosts: webservers
+  become: yes
+  vars_prompt:
+    - name: wp_parool
+      prompt: "wpuser ja WordPressi admin kasutaja parool"
+      private: yes
+
+  vars:
+    wp_kaust: /var/www/html/wordpress
+    veebiteenus: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+    veebikasutaja: "{{ 'www-data' if ansible_os_family == 'Debian' else 'apache' }}"
+    # MySQL sokkel (nagu Lab 4): sokli kaudu ei vaja caching_sha2_password
+    # autentimine Pythoni 'cryptography' teeki (TCP kaudu vajaks)
+    mysql_sokkel: "{{ '/var/run/mysqld/mysqld.sock' if ansible_os_family == 'Debian' else '/var/lib/mysql/mysql.sock' }}"
+
+  tasks:
+    # 1. Ansible-i MySQL moodulid vajavad kliendis Pythoni teeki PyMySQL
+    - name: Paigaldame python3-pymysql
+      package:
+        name: "{{ 'python3-pymysql' if ansible_os_family == 'Debian' else 'python3-PyMySQL' }}"
+        state: present
+
+    # 2. Andmebaas ja ainult sellele andmebaasile õigustega kasutaja
+    #    (root logib sisse /root/.my.cnf faili andmetega)
+    - name: Loome andmebaas nimega-wpdatabase
+      community.mysql.mysql_db:
+        name: wpdatabase
+        state: present
+        login_unix_socket: "{{ mysql_sokkel }}"
+
+    - name: Loome kasutaja nimega-wpuser
+      community.mysql.mysql_user:
+        name: wpuser
+        # MySQL 8.4-s ei ole mysql_native_password plugin vaikimisi laetud,
+        # seepärast parooliga autentimine caching_sha2_password pluginaga
+        plugin: caching_sha2_password
+        plugin_auth_string: "{{ wp_parool }}"
+        update_password: on_create        # olemasoleva kasutaja parooli ei muuda
+        priv: "wpdatabase.*:ALL,GRANT"
+        host: localhost
+        state: present
+        column_case_sensitive: false
+        login_unix_socket: "{{ mysql_sokkel }}"
+        check_implicit_admin: yes
+      no_log: true                      # parooli ei näidata väljundis
+
+    # 3. Iseseisev ülesanne 1: PHP MySQL laiendus (mysqli), ilma selleta
+    #    annab WordPress vea "missing the MySQL extension"
+    - name: PHP MySQL laiendus (php-mysql / php-mysqlnd)
+      package:
+        name: "{{ 'php-mysql' if ansible_os_family == 'Debian' else 'php-mysqlnd' }}"
+        state: present
+
+    # 4. WordPressi lähtekood ametlikult kodulehelt
+    - name: Laeme alla WordPressi
+      get_url:
+        url: https://wordpress.org/latest.tar.gz
+        dest: /tmp/wordpress.tar.gz
+
+    - name: Pakkime WordPressi lahti
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: /var/www/html/
+        remote_src: yes
+        creates: "{{ wp_kaust }}/wp-settings.php"   # teist korda lahti ei paki
+
+    # 5. wp-config.php näidisfailist ja andmebaasi ühenduse andmed (lineinfile)
+    - name: Kopeerime wp-config-sample.php kui wp-config.php vajaliku kohta
+      copy:
+        src: "{{ wp_kaust }}/wp-config-sample.php"
+        dest: "{{ wp_kaust }}/wp-config.php"
+        remote_src: yes
+        force: no                       # juba seadistatud faili üle ei kirjuta
+
+    - name: Määrame andmebaasi nime
+      lineinfile:
+        path: "{{ wp_kaust }}/wp-config.php"
+        regexp: "database_name_here"
+        line: "define( 'DB_NAME', 'wpdatabase' );"
+
+    - name: Määrame andmebaasi kasutajanime
+      lineinfile:
+        path: "{{ wp_kaust }}/wp-config.php"
+        regexp: "username_here"
+        line: "define( 'DB_USER', 'wpuser' );"
+
+    - name: Määrame andmebaasi kasutaja parooli
+      lineinfile:
+        path: "{{ wp_kaust }}/wp-config.php"
+        regexp: "password_here"
+        line: "define( 'DB_PASSWORD', '{{ wp_parool }}' );"
+      no_log: true
+
+    # Failid kuuluvad veebiserveri kasutajale (Debianis www-data, CentOS-is apache)
+    - name: WordPressi failide omanik
+      file:
+        path: "{{ wp_kaust }}"
+        owner: "{{ veebikasutaja }}"
+        group: "{{ veebikasutaja }}"
+        recurse: yes
+
+    # 6. Iseseisev ülesanne 2: paigalduse lõpetamine wp-cli abil (tag wp_install)
+    - name: Laeme alla wp-cli
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: "0755"
+      tags: wp_install
+
+    - name: Kontrollime, kas WordPress on juba paigaldatud
+      command: /usr/local/bin/wp core is-installed --allow-root
+      args:
+        chdir: "{{ wp_kaust }}"
+      register: wp_olek
+      failed_when: false
+      changed_when: false
+      tags: wp_install
+
+    - name: Paigaldame WordPressi (wp core install)
+      command: >
+        /usr/local/bin/wp core install --allow-root
+        --url=http://{{ ansible_default_ipv4.address }}/wordpress
+        --title="admin wordpressi sait"
+        --admin_user=admin
+        --admin_password={{ wp_parool }}
+        --admin_email=admin@example.com
+        --skip-email
+      args:
+        chdir: "{{ wp_kaust }}"
+      when: wp_olek.rc is defined and wp_olek.rc != 0
+      no_log: true
+      tags: wp_install
+
+    # 7. Veebiserver taaskäivitatakse
+    - name: Taaskäivitame Apache teenus
+      service:
+        name: "{{ veebiteenus }}"
+        state: restarted
+      tags: always

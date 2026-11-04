@@ -23,10 +23,11 @@ haldab kahte kliendiserverit:
 | Lab 3 | `playbooks/uninst_php.yml` | iseseisev ülesanne 2: PHP pakettide eemaldamine |
 | Lab 4 | `playbooks/mysql-server.yml` | MySQL ametlik APT hoidla ja MySQL 8.4 server (CentOS-is pakett mysql8.4-server) |
 | Lab 4 | `playbooks/mysql-user.yml` | iseseisev ülesanne: root kasutaja parool ja `/root/.my.cnf` |
+| Lab 5 | `playbooks/wordpress.yml` | WordPress: andmebaas `wpdatabase`, kasutaja `wpuser`, `wp-config.php`; iseseisvad ülesanded: PHP MySQL laiendus ja paigaldus WP-CLI abil (tag `wp_install`) |
 
 Iga playbook kontrollitakse enne käivitamist: `ansible-playbook --check playbook.yml`.
 
 Debiani ja CentOS-i erinevused (paketinimed, teenuse nimi, SELinux) on lahendatud tingimusega
 `when: ansible_os_family == "Debian"` / `"RedHat"`.
 
-MySQL root parooli playbookis ei ole - `mysql-user.yml` küsib selle käivitamisel (`vars_prompt`).
+Paroole playbookides ei ole - `mysql-user.yml` ja `wordpress.yml` küsivad need käivitamisel (`vars_prompt`).
