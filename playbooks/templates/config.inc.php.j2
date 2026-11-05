@@ -1,0 +1,29 @@
+<?php
+/**
+ * phpMyAdmini seadistusfail - {{ ansible_managed }}
+ * Mall: templates/config.inc.php.j2 (Lab 6, Markkus Toriland)
+ * Server: {{ ansible_hostname }} ({{ ansible_default_ipv4.address }})
+ */
+
+declare(strict_types=1);
+
+/* Võti, millega krüpteeritakse sisselogimise küpsised (32 märki) */
+$cfg['blowfish_secret'] = '{{ pma_blowfish }}';
+
+/* MySQL server */
+$i = 0;
+$i++;
+$cfg['Servers'][$i]['verbose'] = '{{ ansible_hostname }} MySQL';
+$cfg['Servers'][$i]['host'] = 'localhost';        /* MySQL samas serveris, ühendus sokli kaudu */
+$cfg['Servers'][$i]['auth_type'] = 'cookie';      /* kasutajanimi ja parool küsitakse sisselogimisel */
+$cfg['Servers'][$i]['compress'] = false;
+$cfg['Servers'][$i]['AllowNoPassword'] = false;   /* ilma paroolita sisse ei saa */
+$cfg['Servers'][$i]['AllowRoot'] = true;          /* root tohib parooliga sisse logida */
+
+/* Vaikimisi valitud server */
+$cfg['ServerDefault'] = 1;
+
+/* Ajutised failid, üles- ja allalaadimise kaustu ei kasutata */
+$cfg['TempDir'] = '{{ pma_tmp }}';
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';

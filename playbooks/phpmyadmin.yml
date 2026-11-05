@@ -1,0 +1,126 @@
+---
+# Lab 6: phpMyAdmini paigaldamine ja seadistamine Ansible playbookiga
+# Autor: Markkus Toriland
+#
+# Kontroll:   ansible-playbook --check /root/playbooks/phpmyadmin.yml
+# Käivitus:   ansible-playbook /root/playbooks/phpmyadmin.yml
+#
+# Eeldused: Lab 2 (Apache2 / httpd), Lab 3 (PHP) ja Lab 4 (MySQL, root parool
+# failis /root/.my.cnf). Jinja2 mall on failis templates/config.inc.php.j2.
+#
+# Debianis (klient1) paigaldatakse phpMyAdmin APT kaudu. CentOS Stream 10
+# (klient2) hoidlates phpMyAdmini paketti ei ole - seal laaditakse alla
+# ametlik arhiiv phpmyadmin.net lehelt ja pakitakse lahti samasse kausta.
+
+- name: phpMyAdmini paigaldamine ja seadistamine
+  hosts: webservers
+  become: yes
+  vars:
+    pma_kaust: /usr/share/phpmyadmin          # phpMyAdmini failid
+    pma_link: /var/www/html/phpmyadmin        # link veebiserveri juurkataloogis
+    pma_tmp: /var/lib/phpmyadmin/tmp          # ajutised failid (Twig vahemälu)
+    veebiteenus: "{{ 'apache2' if ansible_os_family == 'Debian' else 'httpd' }}"
+    veebikasutaja: "{{ 'www-data' if ansible_os_family == 'Debian' else 'apache' }}"
+    # Debiani paketis loeb phpMyAdmin seadeid kaustast /etc/phpmyadmin
+    # (vt configFile failis /usr/share/phpmyadmin/libraries/vendor_config.php)
+    pma_konf: "{{ '/etc/phpmyadmin/config.inc.php' if ansible_os_family == 'Debian' else pma_kaust + '/config.inc.php' }}"
+    # blowfish_secret: 32 juhuslikku märki. Väärtus hoitakse Ansible-serveris
+    # failis /root/.ansible_pma/<host> (mitte GitHubis), igal käivitusel sama.
+    pma_blowfish: "{{ lookup('ansible.builtin.password', '/root/.ansible_pma/' + inventory_hostname + ' chars=ascii_letters,digits length=32') }}"
+
+  tasks:
+    # 1. Enne paigaldamist uuendatakse pakettide nimekiri (moodul apt)
+    - name: Uuendame pakettide nimekirja
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    # Pakett küsib paigaldamisel debconf küsimusi. Vastame ette, et andmebaasi
+    # dbconfig-common abil ei seadistata (root-il on parool, see ebaõnnestuks).
+    - name: debconf - phpMyAdmini andmebaasi automaatselt ei seadistata
+      debconf:
+        name: phpmyadmin
+        question: phpmyadmin/dbconfig-install
+        vtype: boolean
+        value: "false"
+      when: ansible_os_family == "Debian"
+
+    - name: Paigaldame phpMyAdmin paketi
+      apt:
+        name: phpmyadmin
+        state: present
+      when: ansible_os_family == "Debian"
+
+    # CentOS: ametlik arhiiv, --strip-components=1 paneb failid otse kausta
+    - name: Loome kausta /usr/share/phpmyadmin (CentOS)
+      file:
+        path: "{{ pma_kaust }}"
+        state: directory
+        mode: "0755"
+      when: ansible_os_family == "RedHat"
+
+    - name: Laeme alla phpMyAdmini (CentOS)
+      get_url:
+        url: https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.tar.gz
+        dest: /tmp/phpmyadmin.tar.gz
+      when: ansible_os_family == "RedHat"
+
+    - name: Pakime phpMyAdmini lahti (CentOS)
+      unarchive:
+        src: /tmp/phpmyadmin.tar.gz
+        dest: "{{ pma_kaust }}"
+        remote_src: yes
+        extra_opts: ["--strip-components=1"]
+        creates: "{{ pma_kaust }}/index.php"    # teist korda lahti ei paki
+      when: ansible_os_family == "RedHat"
+
+    # Debiani pakett loob selle kausta ise, CentOS-is tuleb see luua.
+    # SELinux: veebiserver tohib kirjutada ainult httpd_sys_rw_content_t kausta.
+    - name: Ajutiste failide kaust (CentOS)
+      file:
+        path: "{{ pma_tmp }}"
+        state: directory
+        owner: "{{ veebikasutaja }}"
+        group: "{{ veebikasutaja }}"
+        mode: "0750"
+        setype: httpd_sys_rw_content_t
+      when: ansible_os_family == "RedHat"
+
+    # 2. Apache teenindab faile kaustast /var/www/html. Sümboolne link
+    #    /var/www/html/phpmyadmin -> /usr/share/phpmyadmin (nagu ln -s).
+    #    src - päris kaust, dest - uus link, state: link - faile ei kopeerita.
+    - name: Tagame, et phpMyAdmini sümboolne link on Apache'i kataloogis
+      file:
+        src: "{{ pma_kaust }}"
+        dest: "{{ pma_link }}"
+        state: link
+
+    # 3. Iseseisev ülesanne 1: config.inc.php Jinja2 mallist (moodul template)
+    - name: Seadistame phpMyAdmini konfiguratsioonifaili config.inc.php
+      template:
+        src: config.inc.php.j2               # otsitakse kaustast templates/
+        dest: "{{ pma_konf }}"
+        owner: root
+        group: root
+        mode: "0644"
+      tags: pma_config
+
+    # 4. Veebiserver taaskäivitatakse (moodul service)
+    - name: Taaskäivitame Apache teenuse
+      service:
+        name: "{{ veebiteenus }}"
+        state: restarted
+
+    # 5. HTTP päring phpMyAdmini lehele (moodulid uri, register, failed_when).
+    #    Kui vastus ei ole 200 või lehel ei ole sõna phpMyAdmin - viga.
+    - name: Veendume, et Apache töötab ja phpMyAdmin on ligipääsetav
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/phpmyadmin/"
+        return_content: yes
+      register: pma_vastus
+      failed_when: pma_vastus.status != 200 or 'phpMyAdmin' not in (pma_vastus.content | default(''))
+
+    - name: Kontrolli tulemus
+      debug:
+        msg: "http://{{ ansible_default_ipv4.address }}/phpmyadmin/ vastas koodiga {{ pma_vastus.status }}, lehel on sõna phpMyAdmin"
+      when: pma_vastus.status is defined

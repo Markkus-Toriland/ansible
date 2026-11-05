@@ -24,6 +24,7 @@ haldab kahte kliendiserverit:
 | Lab 4 | `playbooks/mysql-server.yml` | MySQL ametlik APT hoidla ja MySQL 8.4 server (CentOS-is pakett mysql8.4-server) |
 | Lab 4 | `playbooks/mysql-user.yml` | iseseisev ülesanne: root kasutaja parool ja `/root/.my.cnf` |
 | Lab 5 | `playbooks/wordpress.yml` | WordPress: andmebaas `wpdatabase`, kasutaja `wpuser`, `wp-config.php`; iseseisvad ülesanded: PHP MySQL laiendus ja paigaldus WP-CLI abil (tag `wp_install`) |
+| Lab 6 | `playbooks/phpmyadmin.yml`, `playbooks/templates/config.inc.php.j2` | phpMyAdmin (Debianis APT, CentOS-is ametlik arhiiv), link `/var/www/html/phpmyadmin`, kontroll moodul `uri` abil; iseseisev ülesanne: `config.inc.php` Jinja2 mallist (moodul `template`) |
 
 Iga playbook kontrollitakse enne käivitamist: `ansible-playbook --check playbook.yml`.
 
